@@ -645,6 +645,7 @@ private fun SubPostItem(
                                         author.get { nameShow }
                                     ),
                                     userLevel = author.get { level_id },
+                                    userLevelName = author.get { level_name },
                                     isLz = author.get { id } == threadAuthorId,
                                     bawuType = author.get { bawuType },
                                 )

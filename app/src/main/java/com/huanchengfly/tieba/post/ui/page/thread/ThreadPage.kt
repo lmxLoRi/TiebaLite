@@ -1862,6 +1862,7 @@ fun PostCard(
                                         author.nameShow
                                     ),
                                     userLevel = author.level_id,
+                                    userLevelName = author.level_name,
                                     isLz = author.id == threadAuthorId,
                                     bawuType = author.bawuType,
                                 )
@@ -2065,13 +2066,18 @@ fun UserNameText(
     userName: AnnotatedString,
     userLevel: Int,
     modifier: Modifier = Modifier,
+    userLevelName: String? = null,
     isLz: Boolean = false,
     bawuType: String? = null,
 ) {
+    // 等级牌子文案：有等级头衔时显示为「等级 头衔」，否则退化为仅等级
+    val levelLabel = remember(userLevel, userLevelName) {
+        if (userLevelName.isNullOrBlank()) "$userLevel" else "$userLevel $userLevelName"
+    }
     val text = buildAnnotatedString {
         append(userName)
         append(" ")
-        if (userLevel > 0) appendInlineContent("Level", alternateText = "$userLevel")
+        if (userLevel > 0) appendInlineContent("Level", alternateText = levelLabel)
         if (!bawuType.isNullOrBlank()) {
             append(" ")
             appendInlineContent("Bawu", alternateText = bawuType)
@@ -2085,7 +2091,7 @@ fun UserNameText(
         text = text,
         inlineContent = mapOf(
             "Level" to buildChipInlineContent(
-                "18",
+                levelLabel,
                 color = Color(getIconColorByLevel("$userLevel")),
                 backgroundColor = Color(getIconColorByLevel("$userLevel")).copy(alpha = 0.25f)
             ),
