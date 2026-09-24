@@ -362,7 +362,20 @@ fun buildChipInlineContent(
             padding.calculateTopPadding().value.dpToPxFloat() -
             padding.calculateBottomPadding().value.dpToPxFloat()
     val fontSize = textHeightPx.pxToSpFloat().sp
-    val textWidthPx = textSize.width
+    // chip 内的文字是按缩小后的字号绘制的，宽度也必须用同一字号测量；
+    // 沿用 textStyle（未缩小）测出的宽度会让占位框比文字宽出一截，表现就是左右留白过多，
+    // 且文案越长越明显（等级 + 牌子名这类长文案尤其突出）
+    val chipTextStyleResolved = chipTextStyle.copy(
+        fontSize = fontSize,
+        lineHeight = fontSize,
+        lineHeightStyle = LineHeightStyle(
+            alignment = LineHeightStyle.Alignment.Center,
+            trim = LineHeightStyle.Trim.Both
+        )
+    )
+    val textWidthPx = remember(text, chipTextStyleResolved) {
+        textMeasurer.measure(text, chipTextStyleResolved).size.width
+    }
     val widthPx = textWidthPx +
             padding.calculateStartPadding(LocalLayoutDirection.current).value.dpToPxFloat() +
             padding.calculateEndPadding(LocalLayoutDirection.current).value.dpToPxFloat()
@@ -381,14 +394,7 @@ fun buildChipInlineContent(
             ) {
                 Text(
                     text = it.takeIf { it.isNotBlank() && it != "\uFFFD" } ?: text,
-                    style = chipTextStyle.copy(
-                        fontSize = fontSize,
-                        lineHeight = fontSize,
-                        lineHeightStyle = LineHeightStyle(
-                            alignment = LineHeightStyle.Alignment.Center,
-                            trim = LineHeightStyle.Trim.Both
-                        )
-                    ),
+                    style = chipTextStyleResolved,
                     textAlign = TextAlign.Center,
                     color = color,
                     modifier = Modifier
