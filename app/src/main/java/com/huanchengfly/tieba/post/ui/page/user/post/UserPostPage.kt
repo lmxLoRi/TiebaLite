@@ -1,24 +1,31 @@
 package com.huanchengfly.tieba.post.ui.page.user.post
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.DropdownMenuItem
 import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.Icon
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
@@ -31,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastForEach
 import com.airbnb.lottie.compose.LottieAnimation
@@ -38,6 +46,7 @@ import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.rememberLottieComposition
 import com.huanchengfly.tieba.post.R
+import com.huanchengfly.tieba.post.api.models.UserLikeForumBean
 import com.huanchengfly.tieba.post.api.models.protos.PostInfoList
 import com.huanchengfly.tieba.post.arch.GlobalEvent
 import com.huanchengfly.tieba.post.arch.collectPartialAsState
@@ -53,6 +62,7 @@ import com.huanchengfly.tieba.post.ui.page.destinations.ThreadPageDestination
 import com.huanchengfly.tieba.post.ui.page.destinations.UserProfilePageDestination
 import com.huanchengfly.tieba.post.ui.widgets.compose.Button
 import com.huanchengfly.tieba.post.ui.widgets.compose.Card
+import com.huanchengfly.tieba.post.ui.widgets.compose.ClickMenu
 import com.huanchengfly.tieba.post.ui.widgets.compose.Container
 import com.huanchengfly.tieba.post.ui.widgets.compose.ErrorScreen
 import com.huanchengfly.tieba.post.ui.widgets.compose.FeedCard
@@ -80,6 +90,10 @@ fun UserPostPage(
 
     LazyLoad(loaded = viewModel.initialized) {
         viewModel.send(UserPostUiIntent.Refresh(uid, isThread))
+        if (!isThread) {
+            // 「回复」页签需要关注吧列表来填筛选下拉
+            viewModel.send(UserPostUiIntent.LoadForums(uid))
+        }
         viewModel.initialized = true
     }
 
@@ -111,10 +125,18 @@ fun UserPostPage(
         prop1 = UserPostUiState::hidePost,
         initial = false
     )
+    val forumFilter by viewModel.uiState.collectPartialAsState(
+        prop1 = UserPostUiState::forumFilter,
+        initial = null
+    )
+    val forums by viewModel.uiState.collectPartialAsState(
+        prop1 = UserPostUiState::forums,
+        initial = persistentListOf()
+    )
 
-    val isEmpty by remember {
-        derivedStateOf { posts.isEmpty() }
-    }
+    // 选了筛选条件时即使没有结果也保留列表（否则筛选条会跟着空状态一起消失，没法切回全部吧）
+    // 注意写成普通表达式而非 remember { derivedStateOf { } }：后者会捕获首次组合的旧值
+    val isEmpty = posts.isEmpty() && (isThread || forumFilter == null)
     val isError by remember {
         derivedStateOf { error != null }
     }
@@ -218,7 +240,9 @@ fun UserPostPage(
             LoadMoreLayout(
                 isLoading = isLoadingMore,
                 onLoadMore = {
-                    viewModel.send(UserPostUiIntent.LoadMore(uid, isThread, currentPage))
+                    viewModel.send(
+                        UserPostUiIntent.LoadMore(uid, isThread, currentPage, forumFilter)
+                    )
                 },
                 loadEnd = !hasMore,
                 lazyListState = lazyListState
@@ -227,6 +251,12 @@ fun UserPostPage(
                     data = posts,
                     fluid = fluid,
                     lazyListState = lazyListState,
+                    showForumFilter = !isThread,
+                    forums = forums,
+                    forumFilter = forumFilter,
+                    onSelectForum = { forumId ->
+                        viewModel.send(UserPostUiIntent.Refresh(uid, isThread, forumId))
+                    },
                     onClickItem = { threadId, postId, isSubPost ->
                         if (postId == null) {
                             navigator.navigate(ThreadPageDestination(threadId))
@@ -291,11 +321,16 @@ fun UserPostPage(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun UserPostList(
     data: ImmutableList<PostListItemData>,
     fluid: Boolean = false,
     lazyListState: LazyListState = rememberLazyListState(),
+    showForumFilter: Boolean = false,
+    forums: ImmutableList<UserLikeForumBean.ForumBean> = persistentListOf(),
+    forumFilter: Long? = null,
+    onSelectForum: (Long?) -> Unit = {},
     onClickItem: (threadId: Long, postId: Long?, isSubPost: Boolean) -> Unit = { _, _, _ -> },
     onAgreeItem: (PostInfoList) -> Unit = {},
     onClickReply: (PostInfoList) -> Unit = {},
@@ -304,6 +339,28 @@ private fun UserPostList(
     onClickOriginThread: (threadId: Long) -> Unit = {},
 ) {
     MyLazyColumn(state = lazyListState) {
+        if (showForumFilter) {
+            stickyHeader(key = "reply_forum_filter") {
+                UserReplyFilterBar(
+                    forums = forums,
+                    selectedForumId = forumFilter,
+                    onSelect = onSelectForum,
+                )
+            }
+            if (data.isEmpty() && forumFilter != null) {
+                item(key = "reply_forum_filter_empty") {
+                    Text(
+                        text = stringResource(id = R.string.title_empty),
+                        style = MaterialTheme.typography.body2,
+                        color = ExtendedTheme.colors.textSecondary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 32.dp),
+                    )
+                }
+            }
+        }
         items(
             items = data,
             key = {
@@ -412,5 +469,66 @@ fun UserPostItem(
             modifier = modifier,
             contentPadding = PaddingValues(0.dp),
         )
+    }
+}
+
+/**
+ * 「回复」页签的筛选条：默认「全部吧」，展开后列出该用户关注的全部吧。
+ */
+@Composable
+private fun UserReplyFilterBar(
+    forums: ImmutableList<UserLikeForumBean.ForumBean>,
+    selectedForumId: Long?,
+    onSelect: (Long?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val allText = stringResource(id = R.string.text_user_reply_all_forums)
+    val selectedName = remember(forums, selectedForumId) {
+        forums.firstOrNull { it.id == selectedForumId?.toString() }?.name
+    }
+    ClickMenu(
+        modifier = modifier,
+        menuContent = {
+            DropdownMenuItem(
+                onClick = {
+                    onSelect(null)
+                    dismiss()
+                }
+            ) {
+                Text(text = allText)
+            }
+            forums.fastForEach { forum ->
+                DropdownMenuItem(
+                    onClick = {
+                        onSelect(forum.id.toLongOrNull())
+                        dismiss()
+                    }
+                ) {
+                    Text(text = forum.name.orEmpty())
+                }
+            }
+        },
+        triggerShape = RoundedCornerShape(100),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(ExtendedTheme.colors.background)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = selectedName ?: allText,
+                style = MaterialTheme.typography.body2,
+                color = ExtendedTheme.colors.primary,
+            )
+            Icon(
+                imageVector = Icons.Rounded.ArrowDropDown,
+                contentDescription = null,
+                tint = ExtendedTheme.colors.primary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }

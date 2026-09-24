@@ -5,6 +5,7 @@ import com.huanchengfly.tieba.post.App
 import com.huanchengfly.tieba.post.R
 import com.huanchengfly.tieba.post.api.TiebaApi
 import com.huanchengfly.tieba.post.api.models.AgreeBean
+import com.huanchengfly.tieba.post.api.models.UserLikeForumBean
 import com.huanchengfly.tieba.post.api.models.protos.PostInfoList
 import com.huanchengfly.tieba.post.api.models.protos.abstractText
 import com.huanchengfly.tieba.post.api.models.protos.updateAgreeStatus
@@ -27,7 +28,9 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapConcat
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onStart
@@ -62,21 +65,24 @@ class UserPostViewModel @Inject constructor() :
                     .flatMapConcat { it.toPartialChangeFlow() },
                 intentFlow.filterIsInstance<UserPostUiIntent.LoadMore>()
                     .flatMapConcat { it.toPartialChangeFlow() },
+                intentFlow.filterIsInstance<UserPostUiIntent.LoadForums>()
+                    .flatMapConcat { it.toPartialChangeFlow() },
                 intentFlow.filterIsInstance<UserPostUiIntent.Agree>()
                     .flatMapConcat { it.toPartialChangeFlow() }
             )
 
         private fun UserPostUiIntent.Refresh.toPartialChangeFlow(): Flow<UserPostPartialChange> =
             TiebaApi.getInstance()
-                .userPostFlow(uid, 1, isThread)
+                .userPostFlow(uid, 1, isThread, forumId)
                 .map<UserPostResponse, UserPostPartialChange.Refresh> {
                     checkNotNull(it.data_)
-                    val postList = it.data_.post_list
+                    val postList = it.data_.post_list.filterByForum(forumId)
                     UserPostPartialChange.Refresh.Success(
                         currentPage = 1,
                         hasMore = postList.isNotEmpty(),
                         posts = postList,
-                        hidePost = it.data_.hide_post == 1
+                        hidePost = it.data_.hide_post == 1,
+                        forumFilter = forumId,
                     )
                 }
                 .onStart { emit(UserPostPartialChange.Refresh.Start) }
@@ -84,10 +90,10 @@ class UserPostViewModel @Inject constructor() :
 
         private fun UserPostUiIntent.LoadMore.toPartialChangeFlow(): Flow<UserPostPartialChange> =
             TiebaApi.getInstance()
-                .userPostFlow(uid, page + 1, isThread)
+                .userPostFlow(uid, page + 1, isThread, forumId)
                 .map<UserPostResponse, UserPostPartialChange.LoadMore> {
                     checkNotNull(it.data_)
-                    val postList = it.data_.post_list
+                    val postList = it.data_.post_list.filterByForum(forumId)
                     UserPostPartialChange.LoadMore.Success(
                         currentPage = page + 1,
                         hasMore = postList.isNotEmpty(),
@@ -96,6 +102,32 @@ class UserPostViewModel @Inject constructor() :
                 }
                 .onStart { emit(UserPostPartialChange.LoadMore.Start) }
                 .catch { emit(UserPostPartialChange.LoadMore.Failure(it)) }
+
+        /**
+         * 拉取该用户关注的全部吧，供「回复」页签的筛选下拉使用。
+         *
+         * 关注吧接口按页返回（每页 50），这里顺次翻页并设页数上限，避免关注上千个吧时把请求打爆。
+         */
+        private fun UserPostUiIntent.LoadForums.toPartialChangeFlow(): Flow<UserPostPartialChange.LoadForums> =
+            flow {
+                emit(UserPostPartialChange.LoadForums.Start)
+                val collected = mutableListOf<UserLikeForumBean.ForumBean>()
+                var currentPage = 1
+                var hasMore = true
+                while (hasMore && currentPage <= MAX_FORUM_PAGES) {
+                    val bean = TiebaApi.getInstance()
+                        .userLikeForumFlow(uid.toString(), currentPage)
+                        .firstOrNull() ?: break
+                    collected += bean.forumList.forumList
+                    hasMore = bean.hasMore == "1"
+                    currentPage++
+                }
+                emit(
+                    UserPostPartialChange.LoadForums.Success(
+                        collected.distinctBy { it.id }
+                    )
+                )
+            }.catch { emit(UserPostPartialChange.LoadForums.Failure(it)) }
 
         private fun UserPostUiIntent.Agree.toPartialChangeFlow(): Flow<UserPostPartialChange.Agree> =
             TiebaApi.getInstance()
@@ -122,12 +154,20 @@ sealed interface UserPostUiIntent : UiIntent {
     data class Refresh(
         val uid: Long,
         val isThread: Boolean,
+        /** 只看该吧的发言，null 表示全部吧 */
+        val forumId: Long? = null,
     ) : UserPostUiIntent
 
     data class LoadMore(
         val uid: Long,
         val isThread: Boolean,
         val page: Int,
+        val forumId: Long? = null,
+    ) : UserPostUiIntent
+
+    /** 拉取用户关注的全部吧，用于筛选下拉 */
+    data class LoadForums(
+        val uid: Long,
     ) : UserPostUiIntent
 
     data class Agree(
@@ -154,6 +194,7 @@ sealed interface UserPostPartialChange : PartialChange<UserPostUiState> {
                     currentPage = currentPage,
                     hasMore = hasMore,
                     hidePost = hidePost,
+                    forumFilter = forumFilter,
                     posts = uniquePosts.toImmutableList()
                 )
             }
@@ -171,6 +212,7 @@ sealed interface UserPostPartialChange : PartialChange<UserPostUiState> {
             val hasMore: Boolean,
             val posts: List<PostInfoList>,
             val hidePost: Boolean,
+            val forumFilter: Long? = null,
         ) : Refresh()
 
         data class Failure(
@@ -214,6 +256,26 @@ sealed interface UserPostPartialChange : PartialChange<UserPostUiState> {
         data class Failure(
             val error: Throwable,
         ) : LoadMore()
+    }
+
+    sealed class LoadForums : UserPostPartialChange {
+        override fun reduce(oldState: UserPostUiState): UserPostUiState = when (this) {
+            is Start -> oldState
+
+            is Success -> oldState.copy(forums = forums.toImmutableList())
+
+            is Failure -> oldState
+        }
+
+        data object Start : LoadForums()
+
+        data class Success(
+            val forums: List<UserLikeForumBean.ForumBean>,
+        ) : LoadForums()
+
+        data class Failure(
+            val error: Throwable,
+        ) : LoadForums()
     }
 
     sealed class Agree : UserPostPartialChange {
@@ -297,7 +359,21 @@ data class UserPostUiState(
     val hasMore: Boolean = false,
     val posts: ImmutableList<PostListItemData> = persistentListOf(),
     val hidePost: Boolean = false,
+    /** 当前筛选的吧，null 表示全部吧 */
+    val forumFilter: Long? = null,
+    /** 用户关注的全部吧，供筛选下拉使用 */
+    val forums: ImmutableList<UserLikeForumBean.ForumBean> = persistentListOf(),
 ) : UiState
+
+/** 关注吧列表最多翻多少页（每页 50） */
+private const val MAX_FORUM_PAGES = 6
+
+/**
+ * 按吧筛选时的兜底：请求里已经带了 `forum_id`，正常情况下服务端就会过滤；
+ * 万一服务端忽略该参数，这里再过滤一次，保证列表和筛选条显示一致。
+ */
+private fun List<PostInfoList>.filterByForum(forumId: Long?): List<PostInfoList> =
+    if (forumId == null) this else filter { it.forum_id == forumId }
 
 private fun List<PostInfoList>.toData(): ImmutableList<PostListItemData> {
     return map { postInfo ->

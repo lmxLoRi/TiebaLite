@@ -1397,7 +1397,18 @@ object MixedTiebaApiImpl : ITiebaApi {
         )
     }
 
-    override fun userPostFlow(uid: Long, page: Int, isThread: Boolean): Flow<UserPostResponse> {
+    override fun userPostFlow(
+        uid: Long,
+        page: Int,
+        isThread: Boolean,
+        forumId: Long?,
+    ): Flow<UserPostResponse> {
+        // 百度的坑：只要请求的 common 里带了 _client_version，服务端对「别人的回复」就一律返回
+        // hide_post=1（一条都不给），去掉该字段才会返回真实内容；实测与版本号新旧无关
+        // （9.7.8.0 / 11.10.8.6 / 12.52.1.0 都一样隐藏），其它字段（BDUSS、cuid、rn 等）则不影响。
+        // 用户真正隐藏了动态时去掉该字段依然是空的，所以这里只对「看回复」生效，看主题帖不动。
+        val common = buildCommonRequest(clientVersion = ClientVersion.TIEBA_V12)
+            .let { if (isThread) it else it.copy(_client_version = "") }
         return RetrofitTiebaApi.OFFICIAL_PROTOBUF_TIEBA_V12_API.userPostFlow(
             buildProtobufRequestBody(
                 UserPostRequest(
@@ -1406,8 +1417,9 @@ object MixedTiebaApiImpl : ITiebaApi {
                         rn = 20,
                         is_thread = if (isThread) 1 else 0,
                         need_content = 1,
+                        forum_id = forumId ?: 0L,
                         pn = page,
-                        common = buildCommonRequest(clientVersion = ClientVersion.TIEBA_V12),
+                        common = common,
                         scr_w = getScreenWidth(),
                         scr_h = getScreenHeight(),
                         scr_dip = App.ScreenInfo.DENSITY.toDouble(),
@@ -1431,9 +1443,6 @@ object MixedTiebaApiImpl : ITiebaApi {
             is_guest = if (!TextUtils.equals(uid, myUid)) "1" else null
         )
     }
-
-    override fun userPanelFlow(un: String): Flow<UserPanelBean> =
-        RetrofitTiebaApi.TIEBA_PANEL_API.panelFlow(un)
 
     override fun userPanelFlow(un: String): Flow<UserPanelBean> =
         RetrofitTiebaApi.TIEBA_PANEL_API.panelFlow(un)

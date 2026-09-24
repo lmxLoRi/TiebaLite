@@ -443,7 +443,7 @@ private fun UserProfileContentNormal(
                                         fluid = fluid,
                                     )
                                 }
-                            ).takeIf { isSelf },
+                            ),
                             UserProfilePageData(
                                 id = "concern_forums",
                                 title = {
@@ -606,7 +606,7 @@ private fun UserProfileContentExpanded(
                                         enablePullRefresh = expanded,
                                     )
                                 }
-                            ).takeIf { isSelf },
+                            ),
                             UserProfilePageData(
                                 id = "concern_forums",
                                 title = {

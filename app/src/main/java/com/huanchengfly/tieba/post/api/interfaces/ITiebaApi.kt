@@ -1493,11 +1493,13 @@ interface ITiebaApi {
      * @param uid 用户 ID
      * @param page 分页页码（从 1 开始）
      * @param isThread 是否查看主题贴
+     * @param forumId 只看该吧的发言，传 null 表示不筛选
      */
     fun userPostFlow(
         uid: Long,
         page: Int = 1,
         isThread: Boolean = true,
+        forumId: Long? = null,
     ): Flow<UserPostResponse>
 
     fun userLikeForumFlow(
