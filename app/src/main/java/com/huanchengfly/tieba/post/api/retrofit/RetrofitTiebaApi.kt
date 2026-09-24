@@ -29,6 +29,7 @@ import com.huanchengfly.tieba.post.api.retrofit.interfaces.NewTiebaApi
 import com.huanchengfly.tieba.post.api.retrofit.interfaces.OfficialProtobufTiebaApi
 import com.huanchengfly.tieba.post.api.retrofit.interfaces.OfficialTiebaApi
 import com.huanchengfly.tieba.post.api.retrofit.interfaces.SofireApi
+import com.huanchengfly.tieba.post.api.retrofit.interfaces.TiebaPanelApi
 import com.huanchengfly.tieba.post.api.retrofit.interfaces.WebTiebaApi
 import com.huanchengfly.tieba.post.toJson
 import com.huanchengfly.tieba.post.utils.AccountUtil
@@ -57,6 +58,14 @@ object RetrofitTiebaApi {
     private const val WRITE_TIMEOUT = 60L
 
     private val initTime = System.currentTimeMillis()
+
+    /**
+     * 网页版补充接口（如 `/home/get/panel`）专用 UA。
+     * 实测：换成贴吧客户端 UA 或移动端 WebView UA，该接口都会返回 HTML 页面而不是 JSON。
+     */
+    private const val PANEL_USER_AGENT =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
     internal val randomClientId = "wappc_${initTime}_${(Math.random() * 1000).roundToInt()}"
     private val stParamInterceptor = StParamInterceptor()
     private val connectionPool = ConnectionPool(32, 5, TimeUnit.MINUTES)
@@ -335,6 +344,22 @@ object RetrofitTiebaApi {
                 Param.Z_ID to { AccountUtil.getAccountInfo { zid }.orEmpty() },
             ),
             stParamInterceptor,
+        )
+    }
+
+    /**
+     * 网页版补充接口（用户面板）。
+     *
+     * `/home/get/panel` 按 User-Agent 分流：贴吧客户端 UA 与移动端 WebView UA 都会拿到 HTML 页面，
+     * 只有桌面浏览器 UA 才返回 JSON，因此这里不能复用 [getUserAgent]。
+     */
+    val TIEBA_PANEL_API: TiebaPanelApi by lazy {
+        createJsonApi<TiebaPanelApi>(
+            "https://tiebac.baidu.com/",
+            CommonHeaderInterceptor(
+                Header.USER_AGENT to { PANEL_USER_AGENT },
+                Header.ACCEPT to { "application/json" },
+            ),
         )
     }
 

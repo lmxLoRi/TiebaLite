@@ -45,6 +45,7 @@ import com.huanchengfly.tieba.post.api.models.Sync
 import com.huanchengfly.tieba.post.api.models.ThreadContentBean
 import com.huanchengfly.tieba.post.api.models.ThreadStoreBean
 import com.huanchengfly.tieba.post.api.models.UserLikeForumBean
+import com.huanchengfly.tieba.post.api.models.UserPanelBean
 import com.huanchengfly.tieba.post.api.models.UserPostBean
 import com.huanchengfly.tieba.post.api.models.WebReplyResultBean
 import com.huanchengfly.tieba.post.api.models.WebUploadPicBean
@@ -1430,6 +1431,12 @@ object MixedTiebaApiImpl : ITiebaApi {
             is_guest = if (!TextUtils.equals(uid, myUid)) "1" else null
         )
     }
+
+    override fun userPanelFlow(un: String): Flow<UserPanelBean> =
+        RetrofitTiebaApi.TIEBA_PANEL_API.panelFlow(un)
+
+    override fun userPanelFlow(un: String): Flow<UserPanelBean> =
+        RetrofitTiebaApi.TIEBA_PANEL_API.panelFlow(un)
 
     override fun getUserInfoFlow(): Flow<GetUserInfoResponse> {
         return getUserInfoFlow(AccountUtil.getUid()!!.toLong(), null, null)

@@ -4,6 +4,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -22,7 +24,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.fastForEach
+import com.huanchengfly.tieba.post.R
 import com.huanchengfly.tieba.post.api.models.UserLikeForumBean
 import com.huanchengfly.tieba.post.arch.GlobalEvent
 import com.huanchengfly.tieba.post.arch.collectPartialAsState
@@ -34,6 +39,7 @@ import com.huanchengfly.tieba.post.ui.common.theme.compose.pullRefreshIndicator
 import com.huanchengfly.tieba.post.ui.page.LocalNavigator
 import com.huanchengfly.tieba.post.ui.page.destinations.ForumPageDestination
 import com.huanchengfly.tieba.post.ui.widgets.compose.Avatar
+import com.huanchengfly.tieba.post.ui.widgets.compose.Chip
 import com.huanchengfly.tieba.post.ui.widgets.compose.Container
 import com.huanchengfly.tieba.post.ui.widgets.compose.ErrorScreen
 import com.huanchengfly.tieba.post.ui.widgets.compose.LazyLoad
@@ -83,10 +89,15 @@ fun UserLikeForumPage(
         prop1 = UserLikeForumUiState::forums,
         initial = persistentListOf()
     )
+    val hidden by viewModel.uiState.collectPartialAsState(
+        prop1 = UserLikeForumUiState::hidden,
+        initial = null
+    )
 
-    val isEmpty by remember {
-        derivedStateOf { forums.isEmpty() }
-    }
+    val hiddenForums = hidden.getOrNull()
+    // 注意：不能写成 remember { derivedStateOf { ... hiddenForums ... } }，
+    // 那样闭包会捕获首次组合时的 hiddenForums（此时兜底数据还没回来），导致永远判定为空。
+    val isEmpty = forums.isEmpty() && hiddenForums?.isEmpty != false
     val isError by remember {
         derivedStateOf { error != null }
     }
@@ -127,11 +138,15 @@ fun UserLikeForumPage(
             ) {
                 UserLikeForumList(
                     data = forums,
+                    hidden = hiddenForums,
                     fluid = fluid,
                     onClickForum = { forumBean ->
                         forumBean.name?.let {
                             navigator.navigate(ForumPageDestination(it))
                         }
+                    },
+                    onClickForumName = { name ->
+                        navigator.navigate(ForumPageDestination(name))
                     },
                     lazyListState = lazyListState
                 )
@@ -153,9 +168,24 @@ private fun UserLikeForumList(
     data: ImmutableList<UserLikeForumBean.ForumBean>,
     onClickForum: (UserLikeForumBean.ForumBean) -> Unit,
     fluid: Boolean = false,
+    hidden: HiddenLikeForum? = null,
+    onClickForumName: (String) -> Unit = {},
     lazyListState: LazyListState = rememberLazyListState(),
 ) {
     MyLazyColumn(state = lazyListState) {
+        if (hidden != null && !hidden.isEmpty) {
+            item(key = "hidden_like_forum") {
+                Container(fluid = fluid) {
+                    HiddenLikeForumSection(
+                        hidden = hidden,
+                        onClickForum = onClickForumName,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
         items(
             items = data,
             key = { it.id }
@@ -171,6 +201,85 @@ private fun UserLikeForumList(
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 )
             }
+        }
+    }
+}
+
+/**
+ * 关注的吧被隐藏时的兜底展示：
+ * 面板能给出「按吧内等级分组」的那部分，资料页还能补充一些只在资料里出现的吧名。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun HiddenLikeForumSection(
+    hidden: HiddenLikeForum,
+    onClickForum: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = stringResource(id = R.string.title_user_hide_like_forum),
+                style = MaterialTheme.typography.subtitle1,
+            )
+            Text(
+                text = stringResource(id = R.string.summary_user_hide_like_forum),
+                style = MaterialTheme.typography.caption,
+                color = ExtendedTheme.colors.textSecondary,
+            )
+        }
+
+        hidden.grade.fastForEach { group ->
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = stringResource(
+                        id = R.string.text_user_hide_like_forum_grade,
+                        group.level
+                    ),
+                    style = MaterialTheme.typography.caption,
+                    color = ExtendedTheme.colors.textSecondary,
+                )
+                ForumChips(forums = group.forums, onClickForum = onClickForum)
+            }
+        }
+
+        if (hidden.plain.isNotEmpty()) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = stringResource(id = R.string.text_user_hide_like_forum_plain),
+                    style = MaterialTheme.typography.caption,
+                    color = ExtendedTheme.colors.textSecondary,
+                )
+                ForumChips(forums = hidden.plain, onClickForum = onClickForum)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ForumChips(
+    forums: ImmutableList<String>,
+    onClickForum: (String) -> Unit,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        forums.fastForEach { name ->
+            Chip(
+                text = name,
+                onClick = { onClickForum(name) },
+            )
         }
     }
 }

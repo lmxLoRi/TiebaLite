@@ -1506,6 +1506,18 @@ interface ITiebaApi {
     ): Flow<UserLikeForumBean>
 
     /**
+     * 用户面板（网页接口，仅返回 JSON 需要浏览器 UA）
+     *
+     * 当用户隐藏了「关注的吧」时 [userLikeForumFlow] 会返回空列表，
+     * 可用本接口的 `honor.grade` / `honor.manager` 兜底恢复**部分**关注吧。
+     *
+     * @param un 用户名（[User.name]，注意不是昵称）
+     */
+    fun userPanelFlow(
+        un: String,
+    ): Flow<UserPanelBean>
+
+    /**
      * 获得当前用户信息（需登录）
      */
     fun getUserInfoFlow(): Flow<GetUserInfoResponse>
