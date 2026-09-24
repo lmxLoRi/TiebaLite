@@ -508,7 +508,7 @@ private fun UserProfileContentNormal(
                                 onCopyIdClick = {
                                     TiebaUtil.copyText(
                                         context,
-                                        user.get { id }.toString()
+                                        user.get { displayId() }
                                     )
                                 }
                             )
@@ -649,7 +649,7 @@ private fun UserProfileContentExpanded(
                         onCopyIdClick = {
                             TiebaUtil.copyText(
                                 context,
-                                user.get { id }.toString()
+                                user.get { displayId() }
                             )
                         }
                     )
@@ -764,6 +764,13 @@ private fun ToolbarUserTitle(
         modifier = modifier
     )
 }
+
+/**
+ * 资料页「ID」展示与复制共用的取值：
+ * 优先用贴吧号（[User.tieba_uid]，即对外可见的那个号），
+ * 接口未下发时回退到内部 uid，避免出现「ID: 」这样的空值。
+ */
+private fun User.displayId(): String = tieba_uid.ifEmpty { id.toString() }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -942,7 +949,7 @@ private fun UserProfileDetail(
             Chip(
                 text = stringResource(
                     id = R.string.text_profile_user_id,
-                    user.get { tieba_uid }.toString()
+                    user.get { displayId() }
                 ),
                 appendIcon = {
                     Icon(
