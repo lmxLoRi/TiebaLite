@@ -5,9 +5,7 @@ import androidx.compose.runtime.Stable
 import com.huanchengfly.tieba.post.api.TiebaApi
 import com.huanchengfly.tieba.post.api.models.AgreeBean
 import com.huanchengfly.tieba.post.api.models.CommonResponse
-import com.huanchengfly.tieba.post.api.models.ThreadContentBean
 import com.huanchengfly.tieba.post.api.models.protos.Anti
-import com.huanchengfly.tieba.post.api.models.protos.PbContent
 import com.huanchengfly.tieba.post.api.models.protos.Post
 import com.huanchengfly.tieba.post.api.models.protos.SimpleForum
 import com.huanchengfly.tieba.post.api.models.protos.SubPostList
@@ -33,7 +31,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -42,7 +39,6 @@ import kotlinx.coroutines.flow.flatMapConcat
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onStart
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @Stable
@@ -74,10 +70,8 @@ class SubPostsViewModel @Inject constructor() :
                     .flatMapConcat { it.producePartialChange() },
             )
 
-        private fun SubPostsUiIntent.Load.producePartialChange(): Flow<SubPostsPartialChange.Load> {
-            val pageNumber = page
-            val subPostIdValue = subPostId
-            return TiebaApi.getInstance()
+        private fun SubPostsUiIntent.Load.producePartialChange(): Flow<SubPostsPartialChange.Load> =
+            TiebaApi.getInstance()
                 .pbFloorFlow(threadId, postId, forumId, page, subPostId)
                 .map<PbFloorResponse, SubPostsPartialChange.Load> { response ->
                     val post = checkNotNull(response.data_?.post)
@@ -85,14 +79,12 @@ class SubPostsViewModel @Inject constructor() :
                     val forum = checkNotNull(response.data_?.forum)
                     val thread = checkNotNull(response.data_?.thread)
                     val anti = checkNotNull(response.data_?.anti)
-                    val subPosts = response.data_?.subpost_list.orEmpty()
-                        .fillImageContents(threadId, postId, pageNumber, subPostIdValue)
-                        .map {
-                            SubPostItemData(
-                                it.wrapImmutable(),
-                                it.content.renders.toImmutableList(),
-                            )
-                        }.toImmutableList()
+                    val subPosts = response.data_?.subpost_list.orEmpty().map {
+                        SubPostItemData(
+                            it.wrapImmutable(),
+                            it.content.renders.toImmutableList(),
+                        )
+                    }.toImmutableList()
                     SubPostsPartialChange.Load.Success(
                         anti.wrapImmutable(),
                         forum.wrapImmutable(),
@@ -108,23 +100,18 @@ class SubPostsViewModel @Inject constructor() :
                 }
                 .onStart { emit(SubPostsPartialChange.Load.Start) }
                 .catch { emit(SubPostsPartialChange.Load.Failure(it)) }
-        }
 
-        private fun SubPostsUiIntent.LoadMore.producePartialChange(): Flow<SubPostsPartialChange.LoadMore> {
-            val pageNumber = page
-            val subPostIdValue = subPostId
-            return TiebaApi.getInstance()
+        private fun SubPostsUiIntent.LoadMore.producePartialChange(): Flow<SubPostsPartialChange.LoadMore> =
+            TiebaApi.getInstance()
                 .pbFloorFlow(threadId, postId, forumId, page, subPostId)
                 .map<PbFloorResponse, SubPostsPartialChange.LoadMore> { response ->
                     val page = checkNotNull(response.data_?.page)
-                    val subPosts = response.data_?.subpost_list.orEmpty()
-                        .fillImageContents(threadId, postId, pageNumber, subPostIdValue)
-                        .map {
-                            SubPostItemData(
-                                it.wrapImmutable(),
-                                it.content.renders.toImmutableList(),
-                            )
-                        }.toImmutableList()
+                    val subPosts = response.data_?.subpost_list.orEmpty().map {
+                        SubPostItemData(
+                            it.wrapImmutable(),
+                            it.content.renders.toImmutableList(),
+                        )
+                    }.toImmutableList()
                     SubPostsPartialChange.LoadMore.Success(
                         subPosts,
                         page.current_page < page.total_page,
@@ -135,7 +122,6 @@ class SubPostsViewModel @Inject constructor() :
                 }
                 .onStart { emit(SubPostsPartialChange.LoadMore.Start) }
                 .catch { emit(SubPostsPartialChange.LoadMore.Failure(it)) }
-        }
 
         private fun SubPostsUiIntent.Agree.producePartialChange(): Flow<SubPostsPartialChange.Agree> =
             TiebaApi.getInstance()
@@ -429,61 +415,3 @@ data class SubPostsUiState(
 sealed interface SubPostsUiEvent : UiEvent {
     data object ScrollToSubPosts : SubPostsUiEvent
 }
-private const val IMAGE_PLACEHOLDER = "[图片]"
-
-/**
- * 楼中楼里的图片，protobuf 接口（`pb/floor`、`pb/page`）会把它替换成「[图片]」占位文本，
- * 而网页版详情用的 JSON 接口仍然带真实图片（旧版 UI 就是这么取图的）。
- * 因此只在检测到占位符时，额外请求一次 JSON 接口，用它的内容替换掉占位文本；
- * 请求失败或对方也没图时，保持原样，不影响其它内容。
- */
-private suspend fun List<SubPostList>.fillImageContents(
-    threadId: Long,
-    postId: Long,
-    pageNumber: Int,
-    subPostId: Long?,
-): List<SubPostList> {
-    val hasPlaceholder = any { subPost ->
-        subPost.content.any { it.type == 0 && it.text.trim() == IMAGE_PLACEHOLDER }
-    }
-    if (!hasPlaceholder) return this
-
-    val jsonSubPosts = runCatching {
-        withContext(Dispatchers.IO) {
-            TiebaApi.getInstance().floor(
-                threadId = threadId.toString(),
-                page = pageNumber,
-                postId = postId.toString(),
-                subPostId = subPostId?.toString(),
-            ).execute().body()
-        }
-    }.getOrNull()?.subPostList ?: return this
-
-    val contentsBySubPostId = jsonSubPosts
-        .filter { it.content.isNotEmpty() }
-        .associateBy({ it.id }, { it.content })
-    if (contentsBySubPostId.isEmpty()) return this
-
-    return map { subPost ->
-        val contents = contentsBySubPostId[subPost.id.toString()] ?: return@map subPost
-        subPost.copy(content = contents.map { it.toPbContent() })
-    }
-}
-
-/** JSON 楼中楼内容模型 → protobuf 内容模型，字段一一对应 */
-private fun ThreadContentBean.ContentBean.toPbContent(): PbContent = PbContent(
-    type = type?.toIntOrNull() ?: 0,
-    text = text.orEmpty(),
-    link = link.orEmpty(),
-    src = src.orEmpty(),
-    bsize = bsize.orEmpty(),
-    originSrc = originSrc.orEmpty(),
-    cdnSrc = cdnSrc.orEmpty(),
-    cdnSrcActive = cdnSrcActive.orEmpty(),
-    bigCdnSrc = bigCdnSrc.orEmpty(),
-    voiceMD5 = voiceMD5.orEmpty(),
-    duringTime = duringTime?.toIntOrNull() ?: 0,
-    width = width?.toIntOrNull() ?: 0,
-    height = height?.toIntOrNull() ?: 0,
-    isLongPic = isLongPic?.toIntOrNull() ?: 0,
-)

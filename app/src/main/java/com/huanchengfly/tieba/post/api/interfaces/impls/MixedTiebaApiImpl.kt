@@ -1283,11 +1283,14 @@ object MixedTiebaApiImpl : ITiebaApi {
         page: Int,
         subPostId: Long
     ): Flow<PbFloorResponse> {
+        // 楼中楼里的图片，在 12.x 版本号下会被服务端降级成「[图片]」占位文本，
+        // 换成 22.x 版本号才会返回真正的图片内容（type=3，带 originSrc/cdnSrc）。
+        // 实测与其它参数无关，只取决于 common._client_version。
         return RetrofitTiebaApi.OFFICIAL_PROTOBUF_TIEBA_V12_API.pbFloorFlow(
             buildProtobufRequestBody(
                 PbFloorRequest(
                     PbFloorRequestData(
-                        common = buildCommonRequest(clientVersion = ClientVersion.TIEBA_V12),
+                        common = buildCommonRequest(clientVersion = ClientVersion.TIEBA_V22),
                         forum_id = forumId,
                         kz = threadId,
                         pid = postId,
@@ -1300,7 +1303,7 @@ object MixedTiebaApiImpl : ITiebaApi {
                         ori_ugc_type = 0
                     )
                 ),
-                clientVersion = ClientVersion.TIEBA_V12,
+                clientVersion = ClientVersion.TIEBA_V22,
                 needSToken = false
             )
         )

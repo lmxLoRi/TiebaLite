@@ -33,7 +33,10 @@ fun buildProtobufRequestBody(
     return MyMultipartBody.Builder(BOUNDARY)
         .apply {
             setType(MyMultipartBody.FORM)
-            if (clientVersion != ClientVersion.TIEBA_V12 && clientVersion != ClientVersion.TIEBA_V12_POST) {
+            if (clientVersion != ClientVersion.TIEBA_V12 &&
+                clientVersion != ClientVersion.TIEBA_V12_POST &&
+                clientVersion != ClientVersion.TIEBA_V22
+            ) {
                 addFormDataPart(Param.CLIENT_VERSION, clientVersion.version)
             }
             if (needSToken) {
@@ -100,7 +103,7 @@ fun buildCommonRequest(
         )
     }
 
-    ClientVersion.TIEBA_V12 -> {
+    ClientVersion.TIEBA_V12, ClientVersion.TIEBA_V22 -> {
         CommonRequest(
             BDUSS = AccountUtil.getBduss(),
             _client_id = ClientUtils.clientId ?: RetrofitTiebaApi.randomClientId,

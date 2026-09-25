@@ -3,7 +3,15 @@ package com.huanchengfly.tieba.post.api
 enum class ClientVersion(val version: String) {
     TIEBA_V11("11.10.8.6"),
     TIEBA_V12("12.52.1.0"),
-    TIEBA_V12_POST("12.35.1.0");
+    TIEBA_V12_POST("12.35.1.0"),
+
+    /**
+     * 新版客户端版本号（22.x）。
+     *
+     * 部分接口在旧版本号下会返回降级内容，例如楼中楼（`/c/f/pb/floor`）会把图片替换成
+     * 「[图片]」占位文本，换成该版本号后才会返回真正的图片内容。
+     */
+    TIEBA_V22("22.10.1.0");
 
     override fun toString(): String {
         return version
