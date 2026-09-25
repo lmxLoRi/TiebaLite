@@ -158,6 +158,18 @@ fun rememberBottomSheetNavigator(
 @AndroidEntryPoint
 class MainActivityV2 : BaseComposeActivity() {
     private val handler = Handler(Looper.getMainLooper())
+
+    /**
+     * 延后一点再申请通知权限（等界面稳定）。
+     * 注意：这 100ms 内页面可能已经被销毁（用户秒退、系统回收），
+     * 若不判状态直接请求，XXPermissions 会抛
+     * "The activity has been destroyed, please manually determine the status of the activity"。
+     */
+    private val requestNotificationPermissionRunnable = Runnable {
+        if (!isFinishing && !isDestroyed) {
+            requestNotificationPermission()
+        }
+    }
     private val newMessageReceiver: BroadcastReceiver = NewMessageReceiver()
 
     private val notificationCountFlow: MutableSharedFlow<Int> =
@@ -307,9 +319,12 @@ class MainActivityV2 : BaseComposeActivity() {
             val jobScheduler = getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
             jobScheduler.schedule(builder.build())
         }
-        handler.postDelayed({
-            requestNotificationPermission()
-        }, 100)
+        handler.postDelayed(requestNotificationPermissionRunnable, 100)
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacks(requestNotificationPermissionRunnable)
+        super.onDestroy()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

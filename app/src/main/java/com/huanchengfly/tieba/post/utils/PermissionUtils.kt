@@ -2,6 +2,7 @@ package com.huanchengfly.tieba.post.utils
 
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -425,6 +426,13 @@ class PermissionRequester(val context: Context) {
     var onDenied: (() -> Unit)? = null
 
     fun start() {
+        // 请求发出前宿主页面可能已经销毁（例如延时请求权限时用户已退出），
+        // 这种情况下 XXPermissions 会直接抛
+        // IllegalStateException: The activity has been destroyed..., 这里统一挡掉
+        val activity = context.findActivity()
+        if (activity != null && (activity.isFinishing || activity.isDestroyed)) {
+            return
+        }
         if (XXPermissions.isGranted(context, permissions)) {
             onGranted?.invoke()
         } else {
@@ -457,4 +465,11 @@ fun Context.requestPermission(
     builder: PermissionRequester.() -> Unit
 ) {
     PermissionRequester(this).apply(builder).start()
+}
+
+/** 从 Context 里取出宿主 Activity（拿到的 Context 往往是被包装过的） */
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
