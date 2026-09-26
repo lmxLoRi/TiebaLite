@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastForEach
 import com.huanchengfly.tieba.post.R
 import com.huanchengfly.tieba.post.api.models.UserLikeForumBean
+import com.huanchengfly.tieba.post.repository.HiddenLikeForum
 import com.huanchengfly.tieba.post.arch.GlobalEvent
 import com.huanchengfly.tieba.post.arch.collectPartialAsState
 import com.huanchengfly.tieba.post.arch.getOrNull

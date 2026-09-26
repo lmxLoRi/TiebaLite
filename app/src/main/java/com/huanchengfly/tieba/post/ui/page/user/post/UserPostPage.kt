@@ -46,13 +46,13 @@ import com.airbnb.lottie.compose.LottieCompositionSpec
 import com.airbnb.lottie.compose.LottieConstants
 import com.airbnb.lottie.compose.rememberLottieComposition
 import com.huanchengfly.tieba.post.R
-import com.huanchengfly.tieba.post.api.models.UserLikeForumBean
 import com.huanchengfly.tieba.post.api.models.protos.PostInfoList
 import com.huanchengfly.tieba.post.arch.GlobalEvent
 import com.huanchengfly.tieba.post.arch.collectPartialAsState
 import com.huanchengfly.tieba.post.arch.getOrNull
 import com.huanchengfly.tieba.post.arch.onGlobalEvent
 import com.huanchengfly.tieba.post.arch.pageViewModel
+import com.huanchengfly.tieba.post.repository.LikeForumRepository
 import com.huanchengfly.tieba.post.ui.common.theme.compose.ExtendedTheme
 import com.huanchengfly.tieba.post.ui.common.theme.compose.pullRefreshIndicator
 import com.huanchengfly.tieba.post.ui.page.LocalNavigator
@@ -70,8 +70,10 @@ import com.huanchengfly.tieba.post.ui.widgets.compose.FeedCardPlaceholder
 import com.huanchengfly.tieba.post.ui.widgets.compose.LazyLoad
 import com.huanchengfly.tieba.post.ui.widgets.compose.LoadMoreLayout
 import com.huanchengfly.tieba.post.ui.widgets.compose.MyLazyColumn
+import com.huanchengfly.tieba.post.ui.widgets.compose.PromptDialog
 import com.huanchengfly.tieba.post.ui.widgets.compose.TipScreen
 import com.huanchengfly.tieba.post.ui.widgets.compose.UserHeader
+import com.huanchengfly.tieba.post.ui.widgets.compose.rememberDialogState
 import com.huanchengfly.tieba.post.ui.widgets.compose.states.StateScreen
 import com.huanchengfly.tieba.post.utils.DateTimeUtils
 import kotlinx.collections.immutable.ImmutableList
@@ -136,7 +138,7 @@ fun UserPostPage(
 
     // 选了筛选条件时即使没有结果也保留列表（否则筛选条会跟着空状态一起消失，没法切回全部吧）
     // 注意写成普通表达式而非 remember { derivedStateOf { } }：后者会捕获首次组合的旧值
-    val isEmpty = posts.isEmpty() && (isThread || forumFilter == null)
+    val isEmpty = posts.isEmpty() && (isThread || forumFilter?.isAll != false)
     val isError by remember {
         derivedStateOf { error != null }
     }
@@ -241,7 +243,7 @@ fun UserPostPage(
                 isLoading = isLoadingMore,
                 onLoadMore = {
                     viewModel.send(
-                        UserPostUiIntent.LoadMore(uid, isThread, currentPage, forumFilter)
+                        UserPostUiIntent.LoadMore(uid, isThread, currentPage, forumFilter ?: ForumFilter())
                     )
                 },
                 loadEnd = !hasMore,
@@ -253,9 +255,9 @@ fun UserPostPage(
                     lazyListState = lazyListState,
                     showForumFilter = !isThread,
                     forums = forums,
-                    forumFilter = forumFilter,
-                    onSelectForum = { forumId ->
-                        viewModel.send(UserPostUiIntent.Refresh(uid, isThread, forumId))
+                    forumFilter = forumFilter ?: ForumFilter(),
+                    onSelectForum = { filter ->
+                        viewModel.send(UserPostUiIntent.Refresh(uid, isThread, filter))
                     },
                     onClickItem = { threadId, postId, isSubPost ->
                         if (postId == null) {
@@ -328,9 +330,9 @@ private fun UserPostList(
     fluid: Boolean = false,
     lazyListState: LazyListState = rememberLazyListState(),
     showForumFilter: Boolean = false,
-    forums: ImmutableList<UserLikeForumBean.ForumBean> = persistentListOf(),
-    forumFilter: Long? = null,
-    onSelectForum: (Long?) -> Unit = {},
+    forums: ImmutableList<LikeForumRepository.Entry> = persistentListOf(),
+    forumFilter: ForumFilter = ForumFilter(),
+    onSelectForum: (ForumFilter) -> Unit = {},
     onClickItem: (threadId: Long, postId: Long?, isSubPost: Boolean) -> Unit = { _, _, _ -> },
     onAgreeItem: (PostInfoList) -> Unit = {},
     onClickReply: (PostInfoList) -> Unit = {},
@@ -343,11 +345,11 @@ private fun UserPostList(
             stickyHeader(key = "reply_forum_filter") {
                 UserReplyFilterBar(
                     forums = forums,
-                    selectedForumId = forumFilter,
+                    filter = forumFilter,
                     onSelect = onSelectForum,
                 )
             }
-            if (data.isEmpty() && forumFilter != null) {
+            if (data.isEmpty() && !forumFilter.isAll) {
                 item(key = "reply_forum_filter_empty") {
                     Text(
                         text = stringResource(id = R.string.title_empty),
@@ -477,21 +479,23 @@ fun UserPostItem(
  */
 @Composable
 private fun UserReplyFilterBar(
-    forums: ImmutableList<UserLikeForumBean.ForumBean>,
-    selectedForumId: Long?,
-    onSelect: (Long?) -> Unit,
+    forums: ImmutableList<LikeForumRepository.Entry>,
+    filter: ForumFilter,
+    onSelect: (ForumFilter) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val allText = stringResource(id = R.string.text_user_reply_all_forums)
-    val selectedName = remember(forums, selectedForumId) {
-        forums.firstOrNull { it.id == selectedForumId?.toString() }?.name
+    val customFilterText = stringResource(id = R.string.text_user_reply_custom_filter)
+    val promptDialogState = rememberDialogState()
+    val selectedName = remember(forums, filter) {
+        filter.displayName ?: forums.firstOrNull { it.id == filter.id }?.name
     }
     ClickMenu(
         modifier = modifier,
         menuContent = {
             DropdownMenuItem(
                 onClick = {
-                    onSelect(null)
+                    onSelect(ForumFilter())
                     dismiss()
                 }
             ) {
@@ -500,12 +504,20 @@ private fun UserReplyFilterBar(
             forums.fastForEach { forum ->
                 DropdownMenuItem(
                     onClick = {
-                        onSelect(forum.id.toLongOrNull())
+                        onSelect(ForumFilter(id = forum.id, name = forum.name))
                         dismiss()
                     }
                 ) {
-                    Text(text = forum.name.orEmpty())
+                    Text(text = forum.name)
                 }
+            }
+            DropdownMenuItem(
+                onClick = {
+                    promptDialogState.show()
+                    dismiss()
+                }
+            ) {
+                Text(text = customFilterText)
             }
         },
         triggerShape = RoundedCornerShape(100),
@@ -530,5 +542,20 @@ private fun UserReplyFilterBar(
                 modifier = Modifier.size(18.dp),
             )
         }
+    }
+
+    PromptDialog(
+        dialogState = promptDialogState,
+        title = {
+            Text(text = stringResource(id = R.string.title_user_reply_custom_filter))
+        },
+        onConfirm = { value ->
+            val name = value.trim()
+            if (name.isNotEmpty()) {
+                onSelect(ForumFilter(name = name))
+            }
+        },
+    ) {
+        Text(text = stringResource(id = R.string.hint_user_reply_custom_filter))
     }
 }

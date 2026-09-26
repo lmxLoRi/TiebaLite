@@ -11,6 +11,8 @@ import com.huanchengfly.tieba.post.arch.UiEvent
 import com.huanchengfly.tieba.post.arch.UiIntent
 import com.huanchengfly.tieba.post.arch.UiState
 import com.huanchengfly.tieba.post.arch.wrapImmutable
+import com.huanchengfly.tieba.post.repository.HiddenLikeForum
+import com.huanchengfly.tieba.post.repository.LikeForumRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -55,50 +57,15 @@ class UserLikeForumViewModel @Inject constructor() :
                         hasMore = it.hasMore == "1",
                         forums = forums,
                         // 用户隐藏「关注的吧」时接口会返回空列表，此时尝试兜底恢复部分数据
-                        hidden = if (forums.isEmpty()) loadHiddenLikeForum(uid) else null,
+                        hidden = if (forums.isEmpty()) LikeForumRepository.loadHidden(uid) else null,
                     )
                 }
                 .onStart { emit(UserLikeForumPartialChange.Refresh.Start) }
                 .catch { emit(UserLikeForumPartialChange.Refresh.Failure(it)) }
 
         /**
-         * 用户隐藏「关注的吧」时的兜底：
-         * ① 资料页接口仍会返回 [User.like_forum]（吧名列表）；
-         * ② 网页版面板接口返回 `honor.grade`（按吧内等级分组的吧名）。
-         * 两者合并，等级分组里已有的吧名不重复计入「其它」。
-         *
-         * 任意一步失败都只是拿不到对应部分，不影响正常列表，因此全部做静默降级。
+         * 兜底逻辑见 [LikeForumRepository.loadHidden]：资料页 + 网页版面板拼出部分关注吧。
          */
-        private suspend fun loadHiddenLikeForum(uid: Long): HiddenLikeForum? {
-            val user = runCatching {
-                TiebaApi.getInstance().userProfileFlow(uid).firstOrNull()?.data_?.user
-            }.getOrNull() ?: return null
-
-            val gradedForums = runCatching {
-                TiebaApi.getInstance().userPanelFlow(user.name)
-                    .firstOrNull()
-                    ?.data
-                    ?.honor
-                    ?.grade
-                    .orEmpty()
-            }.getOrDefault(emptyMap())
-                .map { (level, group) -> GradeGroup(level, group.forumList.toImmutableList()) }
-                .filter { it.forums.isNotEmpty() }
-                .sortedByDescending { it.level.toIntOrNull() ?: 0 }
-
-            val gradedNames = gradedForums.flatMap { it.forums }.toSet()
-            val plain = user.likeForum
-                .map { it.forum_name }
-                .filter { it.isNotEmpty() && it !in gradedNames }
-                .distinct()
-
-            if (gradedForums.isEmpty() && plain.isEmpty()) return null
-            return HiddenLikeForum(
-                grade = gradedForums.toImmutableList(),
-                plain = plain.toImmutableList(),
-            )
-        }
-
         private fun UserLikeForumUiIntent.LoadMore.toPartialChangeFlow(): Flow<UserLikeForumPartialChange.LoadMore> =
             TiebaApi.getInstance()
                 .userLikeForumFlow(uid.toString(), page + 1)
@@ -212,24 +179,3 @@ data class UserLikeForumUiState(
     /** 关注的吧被隐藏时，从资料页 / 面板兜底恢复出来的数据 */
     val hidden: ImmutableHolder<HiddenLikeForum>? = null,
 ) : UiState
-
-/**
- * 用户隐藏「关注的吧」时能恢复出来的信息，可能不完整。
- */
-@Immutable
-data class HiddenLikeForum(
-    /** 按吧内等级分组的吧名，等级从高到低 */
-    val grade: ImmutableList<GradeGroup> = persistentListOf(),
-    /** 只在资料页出现、未出现在等级分组里的吧名 */
-    val plain: ImmutableList<String> = persistentListOf(),
-) {
-    val isEmpty: Boolean
-        get() = grade.isEmpty() && plain.isEmpty()
-}
-
-@Immutable
-data class GradeGroup(
-    /** 吧内等级（接口以字符串形式给出） */
-    val level: String,
-    val forums: ImmutableList<String>,
-)

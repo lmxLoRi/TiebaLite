@@ -499,6 +499,9 @@
     <string name="title_profile_concern_forums_tab">关注吧 %s</string>
     <string name="title_user_hide_post">该用户已隐藏动态</string>
     <string name="text_user_reply_all_forums">全部吧</string>
+    <string name="text_user_reply_custom_filter">自定义筛选…</string>
+    <string name="title_user_reply_custom_filter">按吧名筛选</string>
+    <string name="hint_user_reply_custom_filter">输入完整吧名。若找不到同名的吧，则只在已加载的回复里筛选。</string>
     <string name="title_user_hide_like_forum">该用户隐藏了关注的吧</string>
     <string name="summary_user_hide_like_forum">以下内容由资料页与荣誉面板恢复，可能不完整</string>
     <string name="text_user_hide_like_forum_grade">吧内等级 %1$s 级</string>
