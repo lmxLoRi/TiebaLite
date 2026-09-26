@@ -488,7 +488,9 @@ private fun UserReplyFilterBar(
     val customFilterText = stringResource(id = R.string.text_user_reply_custom_filter)
     val promptDialogState = rememberDialogState()
     val selectedName = remember(forums, filter) {
-        filter.displayName ?: forums.firstOrNull { it.id == filter.id }?.name
+        // 注意：只有 id 非空时才按 id 匹配，否则「全部吧」（id 为 null）会撞上
+        // 兜底恢复出来的、同样没有 id 的吧项，把它们的名字显示成当前筛选
+        filter.displayName ?: filter.id?.let { id -> forums.firstOrNull { it.id == id }?.name }
     }
     ClickMenu(
         modifier = modifier,
