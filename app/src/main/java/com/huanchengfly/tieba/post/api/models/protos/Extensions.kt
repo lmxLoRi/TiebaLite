@@ -376,6 +376,32 @@ val Post.contentRenders: ImmutableList<PbContentRender>
         }.toImmutableList()
     }
 
+/**
+ * 楼中楼的正文渲染。
+ *
+ * 与楼层正文一样补上 `photoViewData`——没有它图片点不开大图，也保存 / 分享不了。
+ * 楼中楼自身不带吧与主题帖信息，这两项从所在楼层 [post] 取；
+ * 拿不到楼层信息时退化为不可点击（与改动前的行为一致）。
+ */
+fun SubPostList.contentRenders(post: Post?): ImmutableList<PbContentRender> {
+    val renders = content.renders
+    if (post == null || post.from_forum == null) return renders
+    return renders.map {
+        if (it is PicContentRender) {
+            it.copy(
+                photoViewData = getPhotoViewData(
+                    post,
+                    it.picId,
+                    it.picUrl,
+                    it.originUrl,
+                    it.showOriginBtn,
+                    it.originSize
+                )
+            )
+        } else it
+    }.toImmutableList()
+}
+
 val User.bawuType: String?
     get() = if (is_bawu == 1) {
         if (bawu_type == "manager") "吧主" else "小吧主"

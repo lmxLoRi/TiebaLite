@@ -82,7 +82,7 @@ class SubPostsViewModel @Inject constructor() :
                     val subPosts = response.data_?.subpost_list.orEmpty().map {
                         SubPostItemData(
                             it.wrapImmutable(),
-                            it.content.renders.toImmutableList(),
+                            it.contentRenders(post),
                         )
                     }.toImmutableList()
                     SubPostsPartialChange.Load.Success(
@@ -106,10 +106,12 @@ class SubPostsViewModel @Inject constructor() :
                 .pbFloorFlow(threadId, postId, forumId, page, subPostId)
                 .map<PbFloorResponse, SubPostsPartialChange.LoadMore> { response ->
                     val page = checkNotNull(response.data_?.page)
+                    // 楼中楼自身不带吧/主题帖信息，用所在楼层的数据补上图片的 photoViewData
+                    val post = response.data_?.post
                     val subPosts = response.data_?.subpost_list.orEmpty().map {
                         SubPostItemData(
                             it.wrapImmutable(),
-                            it.content.renders.toImmutableList(),
+                            it.contentRenders(post),
                         )
                     }.toImmutableList()
                     SubPostsPartialChange.LoadMore.Success(
@@ -379,9 +381,10 @@ data class SubPostItemData(
 ) {
     constructor(
         subPost: SubPostList,
+        post: Post? = null,
     ) : this(
         subPost.wrapImmutable(),
-        subPost.content.renders.toImmutableList(),
+        subPost.contentRenders(post),
         subPost.shouldBlock()
     )
 
